@@ -700,7 +700,7 @@ export default function DocsPage() {
               underlying data.
             </P>
             <P>
-              Every proof is generated locally in the holder's browser using the{" "}
+              Every proof is generated locally in the holder&apos;s browser using the{" "}
               <strong style={{ color: "var(--text)" }}>UltraHonk</strong> proof system
               (Noir 1.0.0-beta.9 / Barretenberg 0.87.0). The Stellar chain stores only a
               compact verification record — no personal data touches the ledger.
@@ -727,11 +727,11 @@ export default function DocsPage() {
                 title: "Issue",
                 body: (
                   <>
-                    The issuer calls <Code>POST /api/issue</Code> (server-side) with the holder's
+                    The issuer calls <Code>POST /api/issue</Code> (server-side) with the holder&apos;s
                     wallet address and the relevant attribute (e.g. date of birth). The server
                     computes a <strong style={{color:"var(--text)"}}>Poseidon2 commitment</strong>{" "}
                     over <Code>(value, salt)</Code>, signs the commitment with a secp256k1 demo key,
-                    and returns the full credential JSON. The credential is stored in the holder's
+                    and returns the full credential JSON. The credential is stored in the holder&apos;s
                     <Code>localStorage</Code> — never on a server.
                   </>
                 ),
@@ -760,7 +760,7 @@ export default function DocsPage() {
                     The holder submits the proof to <Code>ProofRegistry.submit_proof</Code> via a
                     wallet-signed Stellar transaction. The registry checks the issuer is trusted
                     via <Code>IssuerRegistry</Code>, verifies the on-chain public key matches the
-                    one in the proof's public inputs, and forwards to <Code>CredentialVerifier</Code>{" "}
+                    one in the proof&apos;s public inputs, and forwards to <Code>CredentialVerifier</Code>{" "}
                     which runs the BN254 UltraHonk verifier as a Soroban host function. If all pass,
                     a record <Code>(verified_at, expiry)</Code> is written to persistent storage.
                     Any protocol can then call <Code>ProofRegistry.is_verified</Code> — a free,
@@ -826,7 +826,7 @@ export default function DocsPage() {
             </SectionHeading>
             <P>
               Each credential type has a dedicated Noir circuit. The circuit proves the
-              claim using the commitment, the issuer's signature, and optional public
+              claim using the commitment, the issuer&apos;s signature, and optional public
               parameters — all without revealing the underlying attribute.
             </P>
 
