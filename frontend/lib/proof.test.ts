@@ -223,3 +223,118 @@ describe("lib/proof backend cache", () => {
     expect(UltraHonkBackendMock).toHaveBeenLastCalledWith(expect.any(String), {});
   });
 });
+
+// ── Timeout tests ───────────────────────────────────────────────────────────
+
+describe("withTimeout", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("aborts after the specified timeout with ProofTimeoutError", async () => {
+    const { withTimeout } = await import("./proof");
+    const { signal, dispose } = withTimeout(undefined, 5000);
+    const abortPromise = new Promise<void>((resolve) => {
+      signal.addEventListener("abort", () => resolve());
+    });
+
+    vi.advanceTimersByTime(5000);
+    await abortPromise;
+
+    expect(signal.aborted).toBe(true);
+    expect(signal.reason).toBeInstanceOf(Error);
+    expect(signal.reason.name).toBe("ProofTimeoutError");
+    dispose();
+  });
+
+  it("does not abort before the timeout elapses", async () => {
+    const { withTimeout } = await import("./proof");
+    const { signal, dispose } = withTimeout(undefined, 10000);
+
+    vi.advanceTimersByTime(9999);
+    expect(signal.aborted).toBe(false);
+    dispose();
+  });
+
+  it("cancels the timeout timer on dispose", async () => {
+    const { withTimeout } = await import("./proof");
+    const { signal, dispose } = withTimeout(undefined, 5000);
+
+    dispose();
+    vi.advanceTimersByTime(10000);
+    expect(signal.aborted).toBe(false);
+  });
+
+  it("mirrors parent signal abort into the child signal", async () => {
+    const { withTimeout } = await import("./proof");
+    const parent = new AbortController();
+    const { signal, dispose } = withTimeout(parent.signal, 10000);
+    const abortPromise = new Promise<void>((resolve) => {
+      signal.addEventListener("abort", () => resolve());
+    });
+
+    parent.abort(new DOMException("User cancelled", "AbortError"));
+    await abortPromise;
+
+    expect(signal.aborted).toBe(true);
+    expect(signal.reason.name).toBe("AbortError");
+    // Parent's abort should not fire the timeout timer.
+    vi.advanceTimersByTime(10000);
+    dispose();
+  });
+});
+
+describe("generateProof timeout", () => {
+  // Stall at the fetch stage (computeWitness hangs forever) so the timeout
+  // fires before we ever need the bb.js backend mock.
+  beforeEach(() => {
+    vi.resetModules();
+    // Mock fetch that stalls indefinitely but rejects when the AbortSignal
+    // fires — without this the abort never propagates and the test hangs.
+    // Uses signal.reason so that ProofTimeoutError from withTimeout surfaces
+    // instead of a generic DOMException.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal?.aborted) {
+            reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+            return;
+          }
+          signal?.addEventListener("abort", () => {
+            reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+          });
+        });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects with ProofTimeoutError when the proof stalls past the timeout", async () => {
+    const { generateProof } = await import("./proof");
+    const promise = generateProof("age", { secret: "x" }, { timeoutMs: 50 });
+
+    await expect(promise).rejects.toThrow(/timed out after/);
+    await expect(promise).rejects.toMatchObject({ name: "ProofTimeoutError" });
+  });
+
+  it("respects the caller's signal abort even before the timeout", async () => {
+    const { generateProof } = await import("./proof");
+    const controller = new AbortController();
+    const promise = generateProof("age", { secret: "x" }, {
+      signal: controller.signal,
+      timeoutMs: 60_000,
+    });
+
+    controller.abort();
+
+    await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+  });
+});

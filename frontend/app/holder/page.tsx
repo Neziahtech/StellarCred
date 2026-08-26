@@ -27,7 +27,7 @@ import { NetworkMismatchBanner } from "@/components/NetworkMismatchBanner";
 import { proofSubmissionConfigured } from "@/lib/config";
 import { truncateHash } from "@/lib/format";
 import { EXPLORER_TX } from "@/lib/stellar";
-import { computeWitness, proveWithBackend } from "@/lib/proof";
+import { computeWitness, proveWithBackend, withTimeout, DEFAULT_PROOF_TIMEOUT_MS } from "@/lib/proof";
 import { useWarmProver } from "@/lib/use-warm-prover";
 import {
   submitProof,
@@ -744,8 +744,12 @@ function ProofFlow({
   const { addEvent } = useProofTimeline(cred);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const { signal } = controller;
+    const parentController = new AbortController();
+    const { signal: timeoutSignal, dispose: disposeTimeout } = withTimeout(
+      parentController.signal,
+      DEFAULT_PROOF_TIMEOUT_MS,
+    );
+    const signal = timeoutSignal;
 
     toast.info(`Generating proof for ${cred.title}…`);
     (async () => {
@@ -798,7 +802,8 @@ function ProofFlow({
       }
     })();
     return () => {
-      controller.abort();
+      parentController.abort();
+      disposeTimeout();
       clearInterval(timerRef.current!);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1134,9 +1139,14 @@ function BatchProofFlow({
         });
 
         let witness: Uint8Array;
+        const { signal: proofSignal, dispose: disposeProofTimeout } = withTimeout(
+          undefined,
+          DEFAULT_PROOF_TIMEOUT_MS,
+        );
         try {
-          witness = await computeWitness(cred.type, cred as unknown as Record<string, unknown>);
+          witness = await computeWitness(cred.type, cred as unknown as Record<string, unknown>, proofSignal);
         } catch (e) {
+          disposeProofTimeout();
           if (cancelled) return;
           setCredStates((prev) => {
             const next = [...prev];
@@ -1150,7 +1160,7 @@ function BatchProofFlow({
           return;
         }
 
-        if (cancelled) return;
+        if (cancelled) { disposeProofTimeout(); return; }
 
         // Proving
         const start = Date.now();
@@ -1171,9 +1181,10 @@ function BatchProofFlow({
 
         let result: { proof: Uint8Array; publicInputs: Uint8Array };
         try {
-          result = await proveWithBackend(cred.type, witness);
+          result = await proveWithBackend(cred.type, witness, proofSignal);
         } catch (e) {
           clearInterval(timer);
+          disposeProofTimeout();
           if (cancelled) return;
           setCredStates((prev) => {
             const next = [...prev];
@@ -1186,6 +1197,7 @@ function BatchProofFlow({
           toast.error(`Proof generation failed for ${cred.title}: ${parsed.friendly}`);
           return;
         }
+        disposeProofTimeout();
 
         clearInterval(timer);
         if (cancelled) return;
