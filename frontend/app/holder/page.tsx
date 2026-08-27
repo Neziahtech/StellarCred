@@ -12,11 +12,9 @@ import {
   IconTrash,
   IconCertificate,
   IconLoader2,
-  IconServer,
   IconCpu,
   IconCloudUpload,
   IconStack2,
-  IconInfoCircle,
 } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
 import { useWallet } from "@/lib/wallet-context";
@@ -51,9 +49,7 @@ import { usePreviewMode } from "@/lib/wallet-context";
 import CopyButton from "@/components/CopyButton";
 import CredentialDetailModal from "@/components/CredentialDetailModal";
 import { useToast } from "@/components/Toast";
-import { QrScanner } from "@/components/QrScanner";
-import { TransferExportModal } from "@/components/TransferExportModal";
-import { TransferImportModal } from "@/components/TransferImportModal";
+
 import { IMPORT_PARAM } from "@/lib/transfer";
 
 // Parse "90 days", "30 days" etc from the credential's expiry string.
@@ -110,9 +106,9 @@ function CredCard({
   address,
   onProve,
   onRemove,
-  onInspect,
+  onInspect: _onInspect,
   isPreview,
-  selection,
+  selection: _selection,
 }: {
   c: Credential;
   address: string;
