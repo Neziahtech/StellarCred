@@ -510,7 +510,7 @@ function HolderInner() {
                 className="faint"
                 style={{ fontSize: "0.75rem", maxWidth: 380, margin: "1.25rem auto 0", lineHeight: 1.6 }}
               >
-                Credentials are stored only in this browser's local storage — clearing
+                Credentials are stored only in this browser&apos;s local storage — clearing
                 site data, switching browsers/devices, or private mode erases them.{" "}
                 <Link
                   href="/docs#storage"
