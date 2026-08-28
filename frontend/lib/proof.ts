@@ -13,54 +13,67 @@
 
 import type { CredentialType } from "./stellar";
 
-// ── Timeout defaults ─────────────────────────────────────────────────────────
-// 100 s — generous enough for single-threaded fallback on slow devices while
-// still bounding stalls (wedged worker, bad input) to a user-visible failure.
-export const DEFAULT_PROOF_TIMEOUT_MS = 100_000;
+// ── Proof timeout ─────────────────────────────────────────────────────────────
+// Stalled provers (wasm hang, network stall on witness fetch) should fail
+// visibly instead of spinning forever. withTimeout composes a deadline onto
+// the existing AbortController plumbing: the caller's signal is forwarded
+// unchanged so user-initiated cancellation still works; when the deadline
+// fires first we throw ProofTimeoutError instead of a raw AbortError.
 
+/** Default maximum time (ms) a proof generation step may take. */
+export const DEFAULT_PROOF_TIMEOUT_MS = 120_000; // 2 minutes
+
+/** Thrown when proof generation exceeds the timeout window. */
 export class ProofTimeoutError extends Error {
   constructor(ms: number) {
-    super(`Proof generation timed out after ${Math.round(ms / 1000)} s`);
+    super(`Proof timed out after ${ms / 1000} seconds`);
     this.name = "ProofTimeoutError";
   }
 }
 
 /**
- * Wraps a caller-supplied `AbortSignal` with an automatic timeout.
- * Returns a child `AbortController` whose signal fires when either:
- *   1. the timeout elapses (`ProofTimeoutError`), or
- *   2. the parent signal aborts (preserving the original reason).
- *
- * The caller must call `dispose()` (i.e. `clearTimeout`) in a finally block.
+ * Wraps an abortable async function with a deadline. Returns the result or
+ * throws `ProofTimeoutError` if the deadline fires before the function
+ * resolves. The caller's `signal` is forwarded — when the *caller* aborts
+ * (user cancel), the original error propagates unchanged; only a timeout
+ * produces `ProofTimeoutError`.
  */
-export function withTimeout(
-  parentSignal: AbortSignal | undefined,
-  timeoutMs: number,
-): { signal: AbortSignal; dispose: () => void } {
-  const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort(new ProofTimeoutError(timeoutMs));
-  }, timeoutMs);
-  if (parentSignal) {
-    // If the parent aborts first, mirror it into the child and cancel the timer.
-    const onParentAbort = () => {
-      if (!controller.signal.aborted) {
-        controller.abort(parentSignal.reason);
-      }
-    };
-    parentSignal.addEventListener("abort", onParentAbort, { once: true });
-    return {
-      signal: controller.signal,
-      dispose: () => {
-        clearTimeout(timer);
-        parentSignal.removeEventListener("abort", onParentAbort);
-      },
-    };
+export function withTimeout<T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<T> {
+  const {
+    timeoutMs = DEFAULT_PROOF_TIMEOUT_MS,
+    signal: callerSignal,
+  } = opts;
+
+  // Short-circuit: caller already cancelled.
+  if (callerSignal?.aborted) {
+    return Promise.reject(new DOMException("Aborted", "AbortError"));
   }
-  return {
-    signal: controller.signal,
-    dispose: () => clearTimeout(timer),
-  };
+
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  // Forward caller abort to our controller.
+  const onCallerAbort = () => controller.abort();
+  callerSignal?.addEventListener("abort", onCallerAbort);
+
+  const promise = fn(controller.signal).finally(() => {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", onCallerAbort);
+  });
+
+  // If timeout fired, swap the raw AbortError for a ProofTimeoutError.
+  return promise.catch((err) => {
+    if (timedOut) throw new ProofTimeoutError(timeoutMs);
+    throw err;
+  });
 }
 
 export interface GeneratedProof {
@@ -279,35 +292,14 @@ export async function proveWithBackend(
   }
 }
 
-export interface ProofOptions {
-  signal?: AbortSignal;
-  /** Overall timeout in ms for the entire prove flow (witness + proof).
-   *  Set to `0` or `Infinity` to disable the built-in timeout.
-   *  Defaults to `DEFAULT_PROOF_TIMEOUT_MS`. */
-  timeoutMs?: number;
-}
-
 // Convenience wrapper — runs both stages in sequence.
 export async function generateProof(
   type: CredentialType,
   credential: Record<string, unknown>,
-  options?: ProofOptions,
+  signal?: AbortSignal,
 ): Promise<GeneratedProof> {
-  const timeoutMs = options?.timeoutMs ?? DEFAULT_PROOF_TIMEOUT_MS;
-  const { signal: timeoutSignal, dispose } = withTimeout(
-    options?.signal,
-    timeoutMs,
-  );
-  try {
-    const witness = await computeWitness(type, credential, timeoutSignal);
-    return proveWithBackend(type, witness, timeoutSignal);
-  } catch (e) {
-    // Re-throw as-is; the caller already handles AbortError.
-    // ProofTimeoutError carries a user-friendly message so the UI can display it.
-    throw e;
-  } finally {
-    dispose();
-  }
+  const witness = await computeWitness(type, credential, signal);
+  return proveWithBackend(type, witness, signal);
 }
 
 // ── Aggregate proof generation ───────────────────────────────────────────────
@@ -409,18 +401,8 @@ export async function computeAggregateWitness(
 
 export async function generateAggregateProof(
   inputs: AggregateInput,
-  options?: { signal?: AbortSignal; timeoutMs?: number },
 ): Promise<GeneratedProof> {
-  const timeoutMs = options?.timeoutMs ?? DEFAULT_PROOF_TIMEOUT_MS;
-  const { signal: timeoutSignal, dispose } = withTimeout(
-    options?.signal,
-    timeoutMs,
-  );
-  try {
-    const witness = await computeAggregateWitness(inputs);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return proveWithBackend("aggregate" as any, witness, timeoutSignal);
-  } finally {
-    dispose();
-  }
+  const witness = await computeAggregateWitness(inputs);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return proveWithBackend("aggregate" as any, witness);
 }

@@ -1083,7 +1083,7 @@ fields 33–64  issuer_y   (secp256k1 Y, one byte per field in low byte)`}</Code
             <P>
               Your credentials — including the raw attribute value (date of birth, income,
               balance…) and its random salt — are stored <strong style={{color:"var(--text)"}}>only in
-              this browser's <Code>localStorage</Code></strong>, under the key{" "}
+              this browser&apos;s <Code>localStorage</Code></strong>, under the key{" "}
               <Code>stellarcred:credentials</Code>. There is no StellarCred account and no
               server-side credential database: the credential JSON exists only on the device
               that received it.
@@ -1103,8 +1103,7 @@ fields 33–64  issuer_y   (secp256k1 Y, one byte per field in low byte)`}</Code
               file containing every credential. Keep that file somewhere safe: it contains the
               raw sensitive attribute values, so treat it like a password. To restore — on a new
               browser, a new device, or after clearing site data — open the Holder page there,
-              click <strong style={{color:"var(--text)"}}>Import credential JSON</strong>, and paste the
-              file's contents. Restored credentials generate and submit proofs exactly like
+              click <strong style={{color:"var(--text)"}}>Import credential JSON</strong>, and pastethe file&apos;s contents. Restored credentials generate and submit proofs exactly like
               newly issued ones.
             </P>
             <P>
@@ -1206,7 +1205,7 @@ fields 33–64  issuer_y   (secp256k1 Y, one byte per field in low byte)`}</Code
             </div>
             <P>
               One nuance: while <em>stored</em> credentials never leave your device, generating a
-              proof sends your credential inputs to <Code>POST /api/witness</Code> (StellarCred's
+              proof sends your credential inputs to <Code>POST /api/witness</Code> (StellarCred&apos;s
               own server), which executes the Noir circuit and returns the witness bytes; the
               proof itself is then computed in your browser. That route is rate-limited, never
               logs the sensitive fields, and does not persist the credential — the values exist
@@ -1214,7 +1213,7 @@ fields 33–64  issuer_y   (secp256k1 Y, one byte per field in low byte)`}</Code
             </P>
             <P>
               On the chain side, submitting a proof writes only the public inputs — the
-              commitment (a hash), the issuer's public key, the credential type, and an expiry
+              commitment (a hash), the issuer&apos;s public key, the credential type, and an expiry
               timestamp — plus the ~14 KB proof bytes. See <em>Privacy model</em> above for the
               full breakdown.
             </P>

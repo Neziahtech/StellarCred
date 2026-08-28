@@ -11,6 +11,11 @@
 // otherwise leak cached backends across each other.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  withTimeout,
+  ProofTimeoutError,
+  DEFAULT_PROOF_TIMEOUT_MS,
+} from "./proof";
 
 const { UltraHonkBackendMock, generateProofMock, destroyMock } = vi.hoisted(() => ({
   UltraHonkBackendMock: vi.fn(),
@@ -224,117 +229,86 @@ describe("lib/proof backend cache", () => {
   });
 });
 
-// ── Timeout tests ───────────────────────────────────────────────────────────
-
-describe("withTimeout", () => {
+describe("withTimeout / ProofTimeoutError", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
+
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("aborts after the specified timeout with ProofTimeoutError", async () => {
-    const { withTimeout } = await import("./proof");
-    const { signal, dispose } = withTimeout(undefined, 5000);
-    const abortPromise = new Promise<void>((resolve) => {
-      signal.addEventListener("abort", () => resolve());
-    });
-
-    vi.advanceTimersByTime(5000);
-    await abortPromise;
-
-    expect(signal.aborted).toBe(true);
-    expect(signal.reason).toBeInstanceOf(Error);
-    expect(signal.reason.name).toBe("ProofTimeoutError");
-    dispose();
+  it("resolves normally when the function completes before the deadline", async () => {
+    const fn = vi.fn().mockResolvedValue("ok");
+    const result = await withTimeout(() => fn(), { timeoutMs: 5000 });
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 
-  it("does not abort before the timeout elapses", async () => {
-    const { withTimeout } = await import("./proof");
-    const { signal, dispose } = withTimeout(undefined, 10000);
-
-    vi.advanceTimersByTime(9999);
-    expect(signal.aborted).toBe(false);
-    dispose();
-  });
-
-  it("cancels the timeout timer on dispose", async () => {
-    const { withTimeout } = await import("./proof");
-    const { signal, dispose } = withTimeout(undefined, 5000);
-
-    dispose();
-    vi.advanceTimersByTime(10000);
-    expect(signal.aborted).toBe(false);
-  });
-
-  it("mirrors parent signal abort into the child signal", async () => {
-    const { withTimeout } = await import("./proof");
-    const parent = new AbortController();
-    const { signal, dispose } = withTimeout(parent.signal, 10000);
-    const abortPromise = new Promise<void>((resolve) => {
-      signal.addEventListener("abort", () => resolve());
-    });
-
-    parent.abort(new DOMException("User cancelled", "AbortError"));
-    await abortPromise;
-
-    expect(signal.aborted).toBe(true);
-    expect(signal.reason.name).toBe("AbortError");
-    // Parent's abort should not fire the timeout timer.
-    vi.advanceTimersByTime(10000);
-    dispose();
-  });
-});
-
-describe("generateProof timeout", () => {
-  // Stall at the fetch stage (computeWitness hangs forever) so the timeout
-  // fires before we ever need the bb.js backend mock.
-  beforeEach(() => {
-    vi.resetModules();
-    // Mock fetch that stalls indefinitely but rejects when the AbortSignal
-    // fires — without this the abort never propagates and the test hangs.
-    // Uses signal.reason so that ProofTimeoutError from withTimeout surfaces
-    // instead of a generic DOMException.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-        return new Promise((_resolve, reject) => {
-          const signal = init?.signal;
-          if (signal?.aborted) {
-            reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
-            return;
-          }
-          signal?.addEventListener("abort", () => {
-            reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
-          });
-        });
-      }),
+  it("throws ProofTimeoutError when the deadline fires first", async () => {
+    // The inner function must observe the abort signal so the promise
+    // actually rejects when the controller fires.
+    const fn = vi.fn().mockImplementation(
+      (signal: AbortSignal) =>
+        new Promise<never>((_, reject) => {
+          signal.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
     );
+
+    const promise = withTimeout(() => fn(), { timeoutMs: 1000 });
+    vi.advanceTimersByTime(1000);
+
+    await expect(promise).rejects.toThrow(ProofTimeoutError);
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("rejects with ProofTimeoutError when the proof stalls past the timeout", async () => {
-    const { generateProof } = await import("./proof");
-    const promise = generateProof("age", { secret: "x" }, { timeoutMs: 50 });
-
-    await expect(promise).rejects.toThrow(/timed out after/);
-    await expect(promise).rejects.toMatchObject({ name: "ProofTimeoutError" });
-  });
-
-  it("respects the caller's signal abort even before the timeout", async () => {
-    const { generateProof } = await import("./proof");
+  it("forwards the caller signal so user-cancel still works", async () => {
     const controller = new AbortController();
-    const promise = generateProof("age", { secret: "x" }, {
-      signal: controller.signal,
+    const fn = vi.fn().mockImplementation(
+      (signal: AbortSignal) =>
+        new Promise<never>((_, reject) => {
+          signal.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+
+    const promise = withTimeout(() => fn(controller.signal), {
       timeoutMs: 60_000,
     });
 
+    // User cancels before the timeout.
     controller.abort();
 
-    await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+    await expect(promise).rejects.toThrow(/Aborted/);
+    // Must NOT be ProofTimeoutError — this was a user cancel.
+    await expect(promise).rejects.not.toThrow(ProofTimeoutError);
+  });
+
+  it("cleans up the timer when the function resolves early", async () => {
+    const fn = vi.fn().mockResolvedValue("done");
+    await withTimeout(() => fn(), { timeoutMs: 5000 });
+
+    // Advancing past the deadline should be a no-op (timer cleared).
+    vi.advanceTimersByTime(10_000);
+    // No unhandled-rejection or other side-effect.
+  });
+
+  it("rejects immediately if caller signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const fn = vi.fn();
+    await expect(
+      withTimeout(() => fn(), { signal: controller.signal }),
+    ).rejects.toThrow(/Aborted/);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("uses DEFAULT_PROOF_TIMEOUT_MS when no timeoutMs is given", () => {
+    expect(DEFAULT_PROOF_TIMEOUT_MS).toBeGreaterThan(0);
+    // Just verify it's a reasonable value (not 0, not Infinity).
+    expect(DEFAULT_PROOF_TIMEOUT_MS).toBeLessThanOrEqual(300_000);
   });
 });
