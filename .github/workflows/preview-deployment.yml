@@ -40,15 +40,15 @@ jobs:
       # in scope, because the fork guard above prevents this step from running
       # on fork PRs.
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -92,6 +92,7 @@ jobs:
       - name: Comment PR with Preview Link
         if: env.VERCEL_TOKEN_SET == 'true'
         uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           PREVIEW_URL: ${{ steps.deploy.outputs.preview_url }}
         with:
@@ -136,7 +137,7 @@ jobs:
       VERCEL_TOKEN_SET: ${{ secrets.VERCEL_TOKEN != '' }}
     steps:
       - name: Install pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -147,7 +148,7 @@ jobs:
       - name: Find Preview URL from PR Comment
         if: env.VERCEL_TOKEN_SET == 'true'
         id: find-url
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const { data: comments } = await github.rest.issues.listComments({
