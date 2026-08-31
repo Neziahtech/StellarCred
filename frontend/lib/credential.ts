@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { CredentialType } from "./stellar";
 import { CREDENTIAL_TYPES, type CredentialType } from "./stellar";
 import { isStorageAvailable } from "./safe-storage";
 
