@@ -130,6 +130,34 @@ jobs:
         # a documented reason using #[allow(clippy::lint_name)] inline.
         run: cargo clippy --all-targets -- -D warnings
 
+  # ── Contract clients: generated bindings freshness ─────────────────────────
+  # frontend/packages/proof-registry and frontend/packages/issuer-registry are
+  # generated from the contract ABIs and are what the SDK reads through. They
+  # only change when someone remembers to regenerate them, so CI rebuilds them
+  # from the current WASMs and fails on any drift — a stale client typechecks
+  # but throws at runtime. Regenerate locally with
+  # `cargo build --release --target wasm32v1-none --locked && ./scripts/gen-bindings.sh`.
+  contract-client-freshness:
+    name: Generated contract clients are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.93.1"
+          targets: wasm32v1-none
+
+      - name: Build contract WASMs
+        run: cargo build --release --target wasm32v1-none --locked -p proof_registry -p issuer_registry
+
+      - name: Install Stellar CLI
+        run: cargo install stellar-cli --locked --version 27.0.0
+
+      - name: Check generated clients match the contract ABIs
+        run: ./scripts/check-bindings.sh
+
   # ── Circuits: Noir compile + VK freshness check ────────────────────────────
   # Runs in parallel with contracts, frontend, and indexer.
   circuits:

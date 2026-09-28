@@ -74,9 +74,18 @@ npm run dev
 1. **Fork** the repo and create a branch from `main`.
 2. Make your changes. Keep commits focused — one logical change per commit.
 3. For contract changes: run `cargo test` and confirm all tests pass.
-4. For circuit changes: run `./circuits/scripts/build.sh` and update the relevant `fixtures/<type>/` artifacts, then regenerate the regression test vectors with `node circuits/scripts/testvectors.js update` (see `circuits/README.md` — "Test Vectors") and commit the result. CI runs `node circuits/scripts/testvectors.js check` and fails if a circuit or toolchain change silently altered proof output without the vectors being updated.
-5. For frontend changes: run `pnpm tsc --noEmit` (zero errors required) and `pnpm build`.
-6. Open a pull request against `main` with a clear description of what changed and why.
+4. For contract changes that add, remove, or rename an entrypoint (or change a signature or type): regenerate the committed clients and commit them. `frontend/packages/proof-registry` and `frontend/packages/issuer-registry` are generated from the contract ABIs and are what the SDK reads through, so a stale client typechecks but fails at runtime.
+
+   ```bash
+   cargo build --release --target wasm32v1-none --locked   # builds the ABIs
+   ./scripts/gen-bindings.sh                              # rewrites the two clients
+   ./scripts/check-bindings.sh                            # what CI runs; must exit 0
+   ```
+
+   Generation is offline (from the local WASMs) and pinned to Stellar CLI v27 — a different CLI version can reformat output and make the check fail. Contract IDs are only stamped into the clients' `networks` constant when `NEXT_PUBLIC_PROOF_REGISTRY_ID` / `NEXT_PUBLIC_ISSUER_REGISTRY_ID` are exported, which is what `scripts/deploy.sh` does after a deployment.
+5. For circuit changes: run `./circuits/scripts/build.sh` and update the relevant `fixtures/<type>/` artifacts, then regenerate the regression test vectors with `node circuits/scripts/testvectors.js update` (see `circuits/README.md` — "Test Vectors") and commit the result. CI runs `node circuits/scripts/testvectors.js check` and fails if a circuit or toolchain change silently altered proof output without the vectors being updated.
+6. For frontend changes: run `pnpm tsc --noEmit` (zero errors required) and `pnpm build`.
+7. Open a pull request against `main` with a clear description of what changed and why.
 
 ## Preview Deployments
 
