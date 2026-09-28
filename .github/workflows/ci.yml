@@ -152,6 +152,12 @@ jobs:
       - name: Build contract WASMs
         run: cargo build --release --target wasm32v1-none --locked -p proof_registry -p issuer_registry
 
+      - name: Install Stellar CLI system deps
+        # stellar-cli's keyring feature links against libdbus, which the
+        # ubuntu runner does not ship (docker/Dockerfile.dev gets it from the
+        # full rust:1-bookworm image).
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+
       - name: Install Stellar CLI
         run: cargo install stellar-cli --locked --version 27.0.0
 
